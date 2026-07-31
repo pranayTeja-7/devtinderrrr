@@ -1,11 +1,16 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 const {connectDB} = require("./database.js");
 const {User} = require("./models/user.js");
+const {userAuth, isAdmin} = require("./middlewares/auth.js");
+
+
 const app = express();
 app.use(express.json());
-
+app.use(cookieParser());
 
 
 app.post("/user/signup", async (req,res) => {
@@ -25,18 +30,22 @@ app.post("/user/signup", async (req,res) => {
 })
 
 
-app.post("/user/login", (req, res) => {
+app.post("/user/login", async (req, res) => {
     try{
         const {emailID, password} = req.body;
-        const user = User.findOne({emailId: emailID})
+        const user = await User.findOne({emailID: emailID})
         if(!user){
-            return res.status(404).send("user not found");
+            console.log(user)
+            return res.status(401).send("invalid credentials");
         }
-        if(bcrypt.compare(password, user.password)){
-            res.send("login successfull");
+        const match = await bcrypt.compare(password, user.password);
+        if(match){
+            const token = jwt.sign( {userId: user._id,}, "jddjfdjfn", {expiresIn: "7d"} )
+            res.cookie("token", token, {expires: new Date(Date.now() + 7*24*60*60*1000)});
+            res.send(token);
         }
         else{
-            return res.status(400).send("login failed");
+            return res.status(401).send("invalid credentials");
         }
     }
     catch(err){
@@ -60,11 +69,11 @@ app.get("/user/all", async (req,res) => {
 })
 
 
-app.get("/user/one", async (req,res) => {
+app.get("/user/one", userAuth, async (req,res) => {
     
     try{
         const user = await User.findOne({emailID: req.query.emailID});
-        console.log(user);
+        // console.log(user);
         if(user){
             res.send(user);
         }
@@ -78,12 +87,9 @@ app.get("/user/one", async (req,res) => {
     }
 })
 
-app.get("/user/:id", async (req, res) => {
+app.get("/user", userAuth, async (req, res) => {
     try{
-        const user = await User.findById(req.params.id)
-        if(!user){
-            return res.status(404).send("user not found");
-        }
+        const user = req.user
         res.send(user);
     }
     catch(err){
